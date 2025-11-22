@@ -1,6 +1,5 @@
 # Dependencies
 node_modules/
-package-lock.json
 yarn.lock
 pnpm-lock.yaml
  
@@ -11,13 +10,6 @@ build/
 
 # Environment files (never commit real secrets)
 .env
-.env.local
-.env.*.local
-.env.*
-.env.development.local
-.env.production.local
-.env.test.local
-
 # Logs
 logs/
 *.log
