@@ -1,280 +1,71 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
-import { config } from '../config/index.js';
-import type {
-  QuestionGenerationRequest,
-  EssayGradingRequest,
-  EssayGradingResult,
-  Question
-} from '../types/index.js';
 
-class GeminiService {
-  private genAI: GoogleGenerativeAI | null = null;
-  private model: any = null;
+const API_KEY = process.env.GEMINI_API_KEY || '';
+const genAI = new GoogleGenerativeAI(API_KEY);
 
-  constructor() {
-    if (config.GEMINI_API_KEY) {
-      this.genAI = new GoogleGenerativeAI(config.GEMINI_API_KEY);
-      this.model = this.genAI.getGenerativeModel({ model: 'gemini-pro' });
-    }
-  }
-
-  private ensureInitialized(): void {
-    if (!this.model) {
-      throw new Error('Gemini API key not configured. Please set GEMINI_API_KEY in environment variables.');
-    }
-  }
-
-  /**
-   * Generate questions based on topic and parameters
-   */
-  async generateQuestions(params: QuestionGenerationRequest): Promise<Partial<Question>[]> {
-    this.ensureInitialized();
-
-    const prompt = this.buildQuestionPrompt(params);
-    
-    try {
-      const result = await this.model.generateContent(prompt);
-      const response = await result.response;
-      const text = response.text();
-      
-      // Parse JSON response
-      const cleanText = this.extractJSON(text);
-      const questions = JSON.parse(cleanText);
-      
-      return questions.map((q: any) => ({
-        type: params.type,
-        question_text: q.question,
-        options: q.options,
-        correct_answer: q.correct_answer,
-        difficulty: params.difficulty,
-        topic: params.topic,
-        explanation: q.explanation
-      }));
-    } catch (error) {
-      console.error('Error generating questions:', error);
-      throw new Error('Failed to generate questions with Gemini AI');
-    }
-  }
-
-  /**
-   * Grade an essay using AI
-   */
-  async gradeEssay(params: EssayGradingRequest): Promise<EssayGradingResult> {
-    this.ensureInitialized();
-
-    const prompt = this.buildEssayGradingPrompt(params);
-    
-    try {
-      const result = await this.model.generateContent(prompt);
-      const response = await result.response;
-      const text = response.text();
-      
-      const cleanText = this.extractJSON(text);
-      const grading = JSON.parse(cleanText);
-      
-      return {
-        score: grading.score,
-        feedback: grading.feedback,
-        strengths: grading.strengths || [],
-        improvements: grading.improvements || [],
-        breakdown: grading.breakdown
-      };
-    } catch (error) {
-      console.error('Error grading essay:', error);
-      throw new Error('Failed to grade essay with Gemini AI');
-    }
-  }
-
-  /**
-   * Build prompt for question generation
-   */
-  private buildQuestionPrompt(params: QuestionGenerationRequest): string {
-    const languageInstruction = params.language === 'vi' 
-      ? 'Tạo câu hỏi bằng TIẾNG VIỆT.'
-      : 'Generate questions in ENGLISH.';
-
-    const gradeContext = this.getGradeContext(params.grade_level);
-    const subjectContext = this.getSubjectContext(params.subject);
-    const difficultyContext = this.getDifficultyContext(params.difficulty);
-
-    if (params.type === 'multiple-choice') {
-      return `${languageInstruction}
-
-Bạn là giáo viên chuyên nghiệp. Hãy tạo ${params.count} câu hỏi trắc nghiệm về chủ đề: "${params.topic}".
-
-${gradeContext}
-${subjectContext}
-${difficultyContext}
-
-Yêu cầu:
-- Mỗi câu hỏi phải có 4 đáp án (A, B, C, D)
-- Chỉ có 1 đáp án đúng
-- Câu hỏi phải rõ ràng, không gây nhầm lẫn
-- Đáp án sai phải hợp lý để phân biệt học sinh hiểu bài và học vẹt
-- Cung cấp giải thích ngắn gọn cho đáp án đúng
-
-Trả về kết quả dưới dạng JSON array với format:
-[
-  {
-    "question": "Nội dung câu hỏi",
-    "options": ["Đáp án A", "Đáp án B", "Đáp án C", "Đáp án D"],
-    "correct_answer": 0,
-    "explanation": "Giải thích tại sao đáp án này đúng"
-  }
-]
-
-CHỈ trả về JSON, KHÔNG thêm text khác.`;
-    } else {
-      return `${languageInstruction}
-
-Bạn là giáo viên chuyên nghiệp. Hãy tạo ${params.count} câu hỏi tự luận về chủ đề: "${params.topic}".
-
-${gradeContext}
-${subjectContext}
-${difficultyContext}
-
-Yêu cầu:
-- Câu hỏi mở, yêu cầu học sinh phân tích, giải thích
-- Phù hợp để đánh giá hiểu biết sâu sắc
-- Cung cấp gợi ý điểm chính cho câu trả lời mẫu
-
-Trả về kết quả dưới dạng JSON array với format:
-[
-  {
-    "question": "Nội dung câu hỏi tự luận",
-    "explanation": "Các điểm chính cần có trong câu trả lời"
-  }
-]
-
-CHỈ trả về JSON, KHÔNG thêm text khác.`;
-    }
-  }
-
-  /**
-   * Build prompt for essay grading
-   */
-  private buildEssayGradingPrompt(params: EssayGradingRequest): string {
-    const rubricSection = params.rubric 
-      ? `Tiêu chí chấm điểm:\n${params.rubric}`
-      : `Tiêu chí chấm điểm (tổng ${params.max_score} điểm):
-- Nội dung đúng, đầy đủ: 40%
-- Cách trình bày logic, mạch lạc: 30%
-- Ngữ pháp, chính tả: 20%
-- Sáng tạo, ý tưởng độc đáo: 10%`;
-
-    return `Bạn là giáo viên chuyên nghiệp đang chấm bài tự luận.
-
-Câu hỏi: "${params.question}"
-
-Bài làm của học sinh:
-"${params.answer}"
-
-${rubricSection}
-
-Hãy chấm điểm bài làm và đưa ra nhận xét chi tiết.
-
-Trả về kết quả dưới dạng JSON với format:
-{
-  "score": 85,
-  "feedback": "Nhận xét tổng quan về bài làm...",
-  "strengths": [
-    "Điểm mạnh 1",
-    "Điểm mạnh 2"
-  ],
-  "improvements": [
-    "Gợi ý cải thiện 1",
-    "Gợi ý cải thiện 2"
-  ],
-  "breakdown": {
-    "content": 35,
-    "presentation": 28,
-    "grammar": 18,
-    "creativity": 9
-  }
+interface GeneratedQuestion {
+  content: string;
+  options: string[];
+  correct_answer: string;
+  explanation: string;
+  difficulty: number;
+  discrimination: number;
+  guessing: number;
+  topic: string;
 }
 
-CHỈ trả về JSON, KHÔNG thêm text khác.`;
-  }
+export class GeminiService {
+  private model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
 
-  /**
-   * Get grade level context for prompts
-   */
-  private getGradeContext(gradeLevel?: string): string {
-    switch (gradeLevel) {
-      case 'elementary':
-        return 'Cấp độ: Tiểu học (lớp 1-5). Câu hỏi đơn giản, dễ hiểu.';
-      case 'middle':
-        return 'Cấp độ: Trung học cơ sở (lớp 6-9). Câu hỏi vừa phải, có tư duy.';
-      case 'high':
-        return 'Cấp độ: Trung học phổ thông (lớp 10-12). Câu hỏi nâng cao, phân tích.';
-      case 'university':
-        return 'Cấp độ: Đại học. Câu hỏi chuyên sâu, nghiên cứu.';
-      default:
-        return '';
+  async generateQuestions(topic: string, difficulty: number, count: number = 5): Promise<GeneratedQuestion[]> {
+    if (!API_KEY) {
+      console.warn('Gemini API Key is missing. Returning mock questions.');
+      return this.getMockQuestions(topic, difficulty, count);
+    }
+
+    const prompt = `
+      Generate ${count} multiple-choice questions for the topic "${topic}" with a difficulty level of ${difficulty} (on a scale of -3.0 to 3.0, where 0 is average).
+      
+      Format the output strictly as a JSON array of objects. Each object must have:
+      - "content": The question text.
+      - "options": An array of 4 possible answers.
+      - "correct_answer": The exact string of the correct option.
+      - "explanation": A brief explanation of why the answer is correct.
+      - "difficulty": The estimated IRT difficulty parameter (b) close to ${difficulty}.
+      - "discrimination": An estimated IRT discrimination parameter (a), typically between 0.5 and 2.5.
+      - "guessing": An estimated guessing parameter (c), typically around 0.25 for 4 options.
+      
+      Do not include markdown formatting like \`\`\`json. Just return the raw JSON string.
+    `;
+
+    try {
+      const result = await this.model.generateContent(prompt);
+      const response = await result.response;
+      const text = response.text();
+
+      // Clean up potential markdown code blocks if Gemini adds them
+      const cleanText = text.replace(/```json/g, '').replace(/```/g, '').trim();
+
+      const questions: GeneratedQuestion[] = JSON.parse(cleanText);
+      return questions.map(q => ({ ...q, topic }));
+    } catch (error) {
+      console.error('Error generating questions with Gemini:', error);
+      return this.getMockQuestions(topic, difficulty, count);
     }
   }
 
-  /**
-   * Get subject context for prompts
-   */
-  private getSubjectContext(subject?: string): string {
-    switch (subject) {
-      case 'math':
-        return 'Môn: Toán học. Tập trung vào logic, tính toán, công thức.';
-      case 'literature':
-        return 'Môn: Ngữ văn. Tập trung vào phân tích văn bản, diễn đạt.';
-      case 'science':
-        return 'Môn: Khoa học. Tập trung vào hiện tượng, thí nghiệm, nguyên lý.';
-      case 'history':
-        return 'Môn: Lịch sử. Tập trung vào sự kiện, nhân vật, mốc thời gian.';
-      case 'english':
-        return 'Môn: Tiếng Anh. Tập trung vào ngữ pháp, từ vựng, đọc hiểu.';
-      default:
-        return '';
-    }
-  }
-
-  /**
-   * Get difficulty context for prompts
-   */
-  private getDifficultyContext(difficulty: number): string {
-    if (difficulty < 0.3) {
-      return 'Độ khó: DỄ. Câu hỏi cơ bản, kiểm tra kiến thức nhớ.';
-    } else if (difficulty < 0.7) {
-      return 'Độ khó: TRUNG BÌNH. Câu hỏi yêu cầu hiểu và vận dụng.';
-    } else {
-      return 'Độ khó: KHÓ. Câu hỏi yêu cầu phân tích, tổng hợp, sáng tạo.';
-    }
-  }
-
-  /**
-   * Extract JSON from response text (handles markdown code blocks)
-   */
-  private extractJSON(text: string): string {
-    // Remove markdown code blocks if present
-    let cleaned = text.trim();
-    
-    // Remove ```json ... ```
-    cleaned = cleaned.replace(/^```json\s*/i, '');
-    cleaned = cleaned.replace(/^```\s*/i, '');
-    cleaned = cleaned.replace(/\s*```$/i, '');
-    
-    // Find JSON array or object
-    const jsonMatch = cleaned.match(/[\[\{][\s\S]*[\]\}]/);
-    if (jsonMatch) {
-      return jsonMatch[0];
-    }
-    
-    return cleaned;
-  }
-
-  /**
-   * Check if Gemini API is available
-   */
-  isAvailable(): boolean {
-    return this.model !== null;
+  private getMockQuestions(topic: string, difficulty: number, count: number): GeneratedQuestion[] {
+    return Array(count).fill(null).map((_, i) => ({
+      content: `Mock Question ${i + 1} about ${topic} (Diff: ${difficulty})`,
+      options: ['Option A', 'Option B', 'Option C', 'Option D'],
+      correct_answer: 'Option A',
+      explanation: 'This is a mock explanation.',
+      difficulty: difficulty,
+      discrimination: 1.0,
+      guessing: 0.25,
+      topic: topic
+    }));
   }
 }
 
 export const geminiService = new GeminiService();
-export default geminiService;

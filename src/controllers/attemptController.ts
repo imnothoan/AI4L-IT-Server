@@ -4,6 +4,7 @@ import { ApiError, asyncHandler } from '../middleware/errorHandler.js';
 import { catService } from '../services/catService.js';
 import { geminiService } from '../services/geminiService.js';
 import type { QuestionResponse, AntiCheatWarning, CATState } from '../types/index.js';
+import { transformSupabaseResponse } from '../utils/caseTransform.js';
 
 /**
  * Start a new exam attempt
@@ -67,7 +68,7 @@ export const startExamAttempt = asyncHandler(async (req: Request, res: Response)
 
   res.status(201).json({
     success: true,
-    data: attempt
+    data: transformSupabaseResponse(attempt)
   });
 });
 
@@ -101,7 +102,7 @@ export const getNextQuestion = asyncHandler(async (req: Request, res: Response) 
 
     // Get available questions
     const answeredIds = attempt.responses.map((r: QuestionResponse) => r.question_id);
-    
+
     const { data: availableQuestions } = await supabaseAdmin
       .from('questions')
       .select('*')
@@ -141,7 +142,7 @@ export const getNextQuestion = asyncHandler(async (req: Request, res: Response) 
   } else {
     // Traditional mode: Get next unanswered question
     const answeredIds = attempt.responses.map((r: QuestionResponse) => r.question_id);
-    
+
     const { data: question } = await supabaseAdmin
       .from('questions')
       .select('*')
@@ -152,7 +153,7 @@ export const getNextQuestion = asyncHandler(async (req: Request, res: Response) 
 
     return res.json({
       success: true,
-      data: question || null
+      data: question ? transformSupabaseResponse(question) : null
     });
   }
 });
@@ -275,7 +276,7 @@ export const submitWarning = asyncHandler(async (req: Request, res: Response) =>
   }
 
   const updatedWarnings = [...attempt.anti_cheat_warnings, warningData];
-  
+
   // Auto-flag if too many warnings
   const highSeverityCount = updatedWarnings.filter(w => w.severity === 'high').length;
   const shouldFlag = attempt.flagged || highSeverityCount >= 3 || updatedWarnings.length >= 10;
@@ -377,7 +378,7 @@ export const completeExamAttempt = asyncHandler(async (req: Request, res: Respon
 
   res.json({
     success: true,
-    data: completedAttempt
+    data: transformSupabaseResponse(completedAttempt)
   });
 });
 
@@ -408,7 +409,7 @@ export const getExamAttempt = asyncHandler(async (req: Request, res: Response) =
 
   res.json({
     success: true,
-    data: attempt
+    data: transformSupabaseResponse(attempt)
   });
 });
 
@@ -433,9 +434,11 @@ export const getExamAttempts = asyncHandler(async (req: Request, res: Response) 
     throw new ApiError('Failed to fetch exam attempts', 500);
   }
 
+  const transformedAttempts = attempts?.map(a => transformSupabaseResponse(a)) || [];
+
   res.json({
     success: true,
-    data: attempts || []
+    data: transformedAttempts
   });
 });
 
@@ -460,8 +463,10 @@ export const getStudentAttempts = asyncHandler(async (req: Request, res: Respons
     throw new ApiError('Failed to fetch student attempts', 500);
   }
 
+  const transformedAttempts = attempts?.map(a => transformSupabaseResponse(a)) || [];
+
   res.json({
     success: true,
-    data: attempts || []
+    data: transformedAttempts
   });
 });

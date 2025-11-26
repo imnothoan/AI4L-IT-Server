@@ -1,45 +1,20 @@
-import { Router } from 'express';
-import * as attemptController from '../controllers/attemptController.js';
-import { authMiddleware, requireRole } from '../middleware/auth.js';
-import { validate, schemas } from '../middleware/validation.js';
+import express from 'express';
+import { catController } from '../controllers/catController.js';
+import { getExamStatistics, getQuestionAnalytics, getStudentPerformance, getActiveSessions, getFlaggedAttempts } from '../controllers/analyticsController.js';
+import { authMiddleware as protect, requireRole as authorize } from '../middleware/auth.js';
 
-const router = Router();
+const router = express.Router();
 
-// All routes require authentication
-router.use(authMiddleware);
+// CAT Session Routes
+router.post('/start', protect, authorize('student'), catController.startExam);
+router.post('/submit', protect, authorize('student'), catController.submitAnswer);
+// router.post('/next', protect, authorize('student'), catController.nextQuestion); // Removed as next is handled in submit
 
-// Start exam attempt (student only)
-router.post('/start', requireRole('student'), attemptController.startExamAttempt);
-
-// Get next question for CAT (student only)
-router.get('/:attemptId/next-question', requireRole('student'), attemptController.getNextQuestion);
-
-// Submit answer (student only)
-router.post(
-  '/:attemptId/submit-answer',
-  requireRole('student'),
-  validate(schemas.submitAnswer),
-  attemptController.submitAnswer
-);
-
-// Submit anti-cheat warning (student only)
-router.post(
-  '/:attemptId/submit-warning',
-  requireRole('student'),
-  validate(schemas.submitWarning),
-  attemptController.submitWarning
-);
-
-// Complete exam attempt (student only)
-router.post('/:attemptId/complete', requireRole('student'), attemptController.completeExamAttempt);
-
-// Get specific attempt
-router.get('/:id', attemptController.getExamAttempt);
-
-// Get all attempts for an exam (instructor only)
-router.get('/exam/:examId', requireRole('instructor'), attemptController.getExamAttempts);
-
-// Get student's attempts
-router.get('/student/:studentId?', attemptController.getStudentAttempts);
+// Analytics Routes (Instructor only)
+router.get('/exams/:examId/statistics', protect, authorize('instructor', 'admin'), getExamStatistics);
+router.get('/exams/:examId/analytics/questions', protect, authorize('instructor', 'admin'), getQuestionAnalytics);
+router.get('/students/:studentId/performance', protect, authorize('instructor', 'admin', 'student'), getStudentPerformance);
+router.get('/exams/:examId/sessions/active', protect, authorize('instructor', 'admin'), getActiveSessions);
+router.get('/exams/:examId/attempts/flagged', protect, authorize('instructor', 'admin'), getFlaggedAttempts);
 
 export default router;

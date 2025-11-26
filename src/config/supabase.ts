@@ -36,6 +36,13 @@ export const supabaseAdmin = createClient(
     auth: {
       autoRefreshToken: false,
       persistSession: false
+    },
+    db: {
+      schema: 'public',
+    },
+    // Optimize for high concurrency
+    global: {
+      headers: { 'x-application-name': 'intelligence-test-server' }
     }
   }
 );

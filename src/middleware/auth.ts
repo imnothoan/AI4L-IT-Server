@@ -30,7 +30,7 @@ export const authMiddleware = async (
   try {
     // Get token from Authorization header
     const authHeader = req.headers.authorization;
-    
+
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
       throw new ApiError('No token provided', 401);
     }
@@ -65,13 +65,13 @@ export const authMiddleware = async (
 };
 
 // Role-based authorization middleware
-export const requireRole = (...roles: Array<'student' | 'instructor'>) => {
+export const requireRole = (...roles: Array<'student' | 'instructor' | 'admin'>) => {
   return (req: Request, _res: Response, next: NextFunction): void => {
     if (!req.user) {
       throw new ApiError('Authentication required', 401);
     }
 
-    if (!roles.includes(req.user.role)) {
+    if (!roles.includes(req.user.role as any)) { // Cast to any to avoid strict type check if user role is not updated yet
       throw new ApiError('Insufficient permissions', 403);
     }
 
@@ -87,7 +87,7 @@ export const optionalAuth = async (
 ): Promise<void> => {
   try {
     const authHeader = req.headers.authorization;
-    
+
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
       return next();
     }

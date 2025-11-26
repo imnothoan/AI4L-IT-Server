@@ -20,6 +20,12 @@ router.get('/:id/students', classController.getClassStudents);
 // Get class exams
 router.get('/:id/exams', classController.getClassExams);
 
+// Get instructor classes
+router.get('/instructor/:instructorId', classController.getClasses);
+
+// Get student classes
+router.get('/student/:studentId', classController.getClassesByStudent);
+
 // Create class (instructor only)
 router.post(
   '/',
@@ -35,7 +41,7 @@ router.put('/:id', requireRole('instructor'), classController.updateClass);
 router.delete('/:id', requireRole('instructor'), classController.deleteClass);
 
 // Add student to class (instructor only)
-router.post('/students', requireRole('instructor'), classController.addStudentToClass);
+router.post('/:id/students', requireRole('instructor'), classController.addStudentToClass);
 
 // Remove student from class (instructor only)
 router.delete(

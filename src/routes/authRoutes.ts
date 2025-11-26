@@ -7,9 +7,13 @@ import { authMiddleware } from '../middleware/auth.js';
 const router = Router();
 
 // Strict rate limiting for authentication endpoints
+// In development: more lenient for testing
+// In production: strict limits
+const isDevelopment = process.env.NODE_ENV !== 'production';
+
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 5, // 5 requests per window
+  max: isDevelopment ? 100 : 5, // Dev: 100/window, Prod: 5/window
   message: {
     success: false,
     error: 'Too many authentication attempts, please try again later.'
@@ -20,7 +24,7 @@ const authLimiter = rateLimit({
 
 const passwordChangeLimiter = rateLimit({
   windowMs: 60 * 60 * 1000, // 1 hour
-  max: 3, // 3 password changes per hour
+  max: isDevelopment ? 20 : 3, // Dev: 20/hour, Prod: 3/hour
   message: {
     success: false,
     error: 'Too many password change attempts, please try again later.'

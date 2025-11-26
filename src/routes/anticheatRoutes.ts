@@ -1,214 +1,199 @@
-import express from 'express';
-import fs from 'fs';
-import path from 'path';
-import { fileURLToPath } from 'url';
+import { Router } from 'express';
+import { supabase } from '../config/supabase';
+import { authMiddleware as authenticateToken } from '../middleware/auth.js';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-const router = express.Router();
-
-// Load trained anticheat models
-const anticheatModelsPath = path.join(__dirname, '../../../ai_models/anticheat_models.json');
-const anticheatModels = JSON.parse(
-    fs.readFileSync(anticheatModelsPath, 'utf8')
-);
-
-console.log('✅ Loaded anticheat models:', Object.keys(anticheatModels));
+const router = Router();
 
 /**
- * Analyze webcam frame for cheating behavior
- * POST /api/anticheat/analyze-frame
+ * Store violation from proctoring system
+ * POST /api/anticheat/violations
  */
-router.post('/analyze-frame', async (req, res) => {
+router.post('/violations', authenticateToken, async (req, res) => {
     try {
-        const { attemptId, frameData, timestamp } = req.body;
+        const { attemptId, type, severity, message, metadata } = req.body;
 
-        if (!attemptId || !frameData) {
-            return res.status(400).json({ error: 'Missing required fields' });
+        if (!attemptId || !type) {
+            return res.status(400).json({ error: 'attemptId and type are required' });
         }
 
-        // In production, this would:
-        // 1. Decode base64 image
-        // 2. Run through deployed ML models (via ONNX runtime or TensorFlow.js)
-        // 3. Get predictions for gaze, objects, faces
+        // Insert violation into database
+        const { data, error } = await supabase
+            .from('anticheat_violations')
+            .insert({
+                attempt_id: attemptId,
+                type,
+                severity: severity || 'medium',
+                message,
+                metadata: metadata || {},
+                detected_at: new Date().toISOString()
+            })
+            .select()
+            .single();
 
-        // For now, simulate detection with trained model parameters
-        const analysis = await simulateAntiCheatAnalysis(frameData, anticheatModels);
+        if (error) throw error;
 
-        // Log violations to database
-        if (analysis.violations.length > 0) {
-            // TODO: Insert into anticheat_events table
-            console.log(`⚠️ Violations detected for attempt ${attemptId}:`, analysis.violations);
+        // Check if should lock exam (3+ violations)
+        const { data: violationCount } = await supabase
+            .from('anticheat_violations')
+            .select('id', { count: 'exact' })
+            .eq('attempt_id', attemptId);
+
+        const shouldLock = (violationCount?.length || 0) >= 3;
+
+        if (shouldLock) {
+            // Lock the exam attempt
+            await supabase
+                .from('exam_attempts')
+                .update({
+                    status: 'locked',
+                    locked_reason: 'Multiple anti-cheat violations detected',
+                    updated_at: new Date().toISOString()
+                })
+                .eq('id', attemptId);
         }
 
-        res.json({
+        res.status(201).json({
             success: true,
-            timestamp,
-            analysis: {
-                gazeDetection: analysis.gaze,
-                objectDetection: analysis.objects,
-                faceCount: analysis.faces,
-                violations: analysis.violations,
-                riskScore: analysis.riskScore
-            }
+            violation: data,
+            shouldLock,
+            totalViolations: violationCount?.length || 0
         });
-    } catch (error) {
-        console.error('❌ Error analyzing frame:', error);
-        res.status(500).json({ error: 'Failed to analyze frame' });
+    } catch (error: any) {
+        console.error('Store violation error:', error);
+        res.status(500).json({ error: 'Failed to store violation', details: error.message });
     }
 });
 
 /**
- * Get anticheat report for an attempt
- * GET /api/anticheat/report/:attemptId
+ * Get violations for an attempt
+ * GET /api/anticheat/violations/:attemptId
  */
-router.get('/report/:attemptId', async (req, res) => {
+router.get('/violations/:attemptId', authenticateToken, async (req, res) => {
     try {
         const { attemptId } = req.params;
 
-        // TODO: Query anticheat_events table
-        // For now, return sample data
-        const report = {
-            attemptId,
-            totalFramesAnalyzed: 120,
-            violations: [
-                {
-                    type: 'gaze_away',
-                    count: 5,
-                    timestamps: ['12:15:30', '12:17:45', '12:20:12'],
-                    severity: 'medium'
-                },
-                {
-                    type: 'tab_switch',
-                    count: 2,
-                    timestamps: ['12:18:22', '12:25:10'],
-                    severity: 'high'
+        const { data, error } = await supabase
+            .from('anticheat_violations')
+            .select('*')
+            .eq('attempt_id', attemptId)
+            .order('detected_at', { ascending: false });
+
+        if (error) throw error;
+
+        res.json({
+            success: true,
+            violations: data || [],
+            count: data?.length || 0
+        });
+    } catch (error: any) {
+        console.error('Get violations error:', error);
+        res.status(500).json({ error: 'Failed to fetch violations', details: error.message });
+    }
+});
+
+/**
+ * Get violation summary for exam
+ * GET /api/anticheat/exam/:examId/summary
+ */
+router.get('/exam/:examId/summary', authenticateToken, async (req, res) => {
+    try {
+        const { examId } = req.params;
+
+        // Get all attempts for this exam
+        const { data: attempts } = await supabase
+            .from('exam_attempts')
+            .select('id')
+            .eq('exam_id', examId);
+
+        if (!attempts || attempts.length === 0) {
+            return res.json({
+                success: true,
+                summary: {
+                    totalAttempts: 0,
+                    violationCounts: {},
+                    flaggedStudents: []
                 }
-            ],
-            riskScore: 0.45,
-            recommendation: 'Manual review suggested'
-        };
+            });
+        }
 
-        res.json(report);
-    } catch (error) {
-        console.error('❌ Error fetching anticheat report:', error);
-        res.status(500).json({ error: 'Failed to fetch report' });
-    }
-});
+        const attemptIds = attempts.map(a => a.id);
 
-/**
- * Get model status and performance
- * GET /api/anticheat/status
- */
-router.get('/status', (req, res) => {
-    res.json({
-        modelsLoaded: true,
-        models: {
-            gaze: {
-                type: anticheatModels.gaze.type,
-                accuracy: anticheatModels.gaze.accuracy,
-                threshold: anticheatModels.gaze.threshold
-            },
-            objects: {
-                type: anticheatModels.objects.type,
-                map: anticheatModels.objects.map,
-                classes: anticheatModels.objects.classes
-            },
-            faces: {
-                type: anticheatModels.faces.type,
-                accuracy: anticheatModels.faces.accuracy
+        // Get all violations for these attempts
+        const { data: violations } = await supabase
+            .from('anticheat_violations')
+            .select('*')
+            .in('attempt_id', attemptIds);
+
+        // Aggregate by type
+        const violationCounts: Record<string, number> = {};
+        violations?.forEach(v => {
+            violationCounts[v.type] = (violationCounts[v.type] || 0) + 1;
+        });
+
+        // Find students with 2+ violations
+        const attemptViolations: Record<string, number> = {};
+        violations?.forEach(v => {
+            attemptViolations[v.attempt_id] = (attemptViolations[v.attempt_id] || 0) + 1;
+        });
+
+        const flaggedAttempts = Object.entries(attemptViolations)
+            .filter(([_, count]) => count >= 2)
+            .map(([attemptId, count]) => ({ attemptId, violationCount: count }));
+
+        res.json({
+            success: true,
+            summary: {
+                totalAttempts: attempts.length,
+                totalViolations: violations?.length || 0,
+                violationCounts,
+                flaggedStudents: flaggedAttempts
             }
-        },
-        status: 'operational'
-    });
+        });
+    } catch (error: any) {
+        console.error('Get exam summary error:', error);
+        res.status(500).json({ error: 'Failed to fetch summary', details: error.message });
+    }
 });
 
 /**
- * Simulate anticheat analysis
- * In production, this would use actual ONNX/TensorFlow models
+ * Export violation report as PDF (placeholder - future implementation)
+ * GET /api/anticheat/violations/:attemptId/export
  */
-async function simulateAntiCheatAnalysis(frameData, models) {
-    // Simulate processing time
-    await new Promise(resolve => setTimeout(resolve, 50));
+router.get('/violations/:attemptId/export', authenticateToken, async (req, res) => {
+    try {
+        const { attemptId } = req.params;
 
-    // Simulate detection with model accuracy
-    const gazeAccuracy = models.gaze.accuracy;
-    const objectsAccuracy = models.objects.map;
-    const facesAccuracy = models.faces.accuracy;
+        // TODO: Generate PDF report using library like pdfkit
+        // For now, return JSON that can be used to generate PDF on frontend
 
-    // Simulate gaze detection
-    const isLookingAway = Math.random() > 0.9; // 10% chance
-    const gazeConfidence = gazeAccuracy + (Math.random() - 0.5) * 0.1;
+        const { data: violations } = await supabase
+            .from('anticheat_violations')
+            .select('*')
+            .eq('attempt_id', attemptId)
+            .order('detected_at', { ascending: true });
 
-    // Simulate object detection
-    const phoneDetected = Math.random() > 0.95; // 5% chance
-    const bookDetected = Math.random() > 0.97; // 3% chance
-    const objectConfidence = objectsAccuracy + (Math.random() - 0.5) * 0.1;
+        const { data: attempt } = await supabase
+            .from('exam_attempts')
+            .select(`
+                *,
+                exams(title),
+                profiles(full_name, email)
+            `)
+            .eq('id', attemptId)
+            .single();
 
-    // Simulate face counting
-    const faceCount = Math.random() > 0.98 ? 2 : 1; // 2% chance of multiple faces
-    const faceConfidence = facesAccuracy + (Math.random() - 0.5) * 0.05;
-
-    const violations = [];
-    let riskScore = 0;
-
-    if (isLookingAway && gazeConfidence > models.gaze.threshold) {
-        violations.push({
-            type: 'gaze_away',
-            confidence: gazeConfidence,
-            severity: 'medium'
+        res.json({
+            success: true,
+            report: {
+                attempt,
+                violations: violations || [],
+                generatedAt: new Date().toISOString()
+            }
         });
-        riskScore += 0.2;
+    } catch (error: any) {
+        console.error('Export report error:', error);
+        res.status(500).json({ error: 'Failed to export report', details: error.message });
     }
-
-    if (phoneDetected && objectConfidence > models.objects.confidence_threshold) {
-        violations.push({
-            type: 'phone_detected',
-            confidence: objectConfidence,
-            severity: 'high'
-        });
-        riskScore += 0.4;
-    }
-
-    if (bookDetected && objectConfidence > models.objects.confidence_threshold) {
-        violations.push({
-            type: 'book_detected',
-            confidence: objectConfidence,
-            severity: 'high'
-        });
-        riskScore += 0.3;
-    }
-
-    if (faceCount > 1 && faceConfidence > 0.9) {
-        violations.push({
-            type: 'multiple_faces',
-            count: faceCount,
-            confidence: faceConfidence,
-            severity: 'critical'
-        });
-        riskScore += 0.5;
-    }
-
-    return {
-        gaze: {
-            lookingAtScreen: !isLookingAway,
-            confidence: gazeConfidence
-        },
-        objects: {
-            detected: phoneDetected || bookDetected,
-            items: [
-                ...(phoneDetected ? [{ class: 'phone', confidence: objectConfidence }] : []),
-                ...(bookDetected ? [{ class: 'book', confidence: objectConfidence }] : [])
-            ]
-        },
-        faces: {
-            count: faceCount,
-            confidence: faceConfidence
-        },
-        violations,
-        riskScore: Math.min(riskScore, 1.0)
-    };
-}
+});
 
 export default router;

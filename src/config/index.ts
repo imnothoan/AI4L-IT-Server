@@ -14,7 +14,7 @@ export const config: EnvConfig = {
   GEMINI_API_KEY: process.env.GEMINI_API_KEY || '',
   CORS_ORIGIN: process.env.CORS_ORIGIN || 'http://localhost:5173',
   RATE_LIMIT_WINDOW_MS: parseInt(process.env.RATE_LIMIT_WINDOW_MS || '900000', 10),
-  RATE_LIMIT_MAX_REQUESTS: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS || '100', 10),
+  RATE_LIMIT_MAX_REQUESTS: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS || '10000', 10),
   WS_PORT: parseInt(process.env.WS_PORT || '3001', 10),
   LOG_LEVEL: process.env.LOG_LEVEL || 'info'
 };
@@ -26,11 +26,11 @@ export function validateConfig(): void {
   if (!config.SUPABASE_URL) {
     errors.push('SUPABASE_URL is required');
   }
-  
+
   if (!config.SUPABASE_ANON_KEY) {
     errors.push('SUPABASE_ANON_KEY is required');
   }
-  
+
   if (!config.SUPABASE_SERVICE_ROLE_KEY) {
     errors.push('SUPABASE_SERVICE_ROLE_KEY is required');
   }

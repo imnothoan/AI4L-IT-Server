@@ -3,6 +3,7 @@ import { supabaseAdmin } from '../config/supabase.js';
 import { ApiError, asyncHandler } from '../middleware/errorHandler.js';
 import { geminiService } from '../services/geminiService.js';
 import type { Question, QuestionGenerationRequest, PaginatedResponse } from '../types/index.js';
+import { transformSupabaseResponse } from '../utils/caseTransform.js';
 
 /**
  * Create a new question
@@ -30,7 +31,7 @@ export const createQuestion = asyncHandler(async (req: Request, res: Response) =
 
   res.status(201).json({
     success: true,
-    data: question
+    data: transformSupabaseResponse<Question>(question)
   });
 });
 
@@ -75,9 +76,11 @@ export const getQuestions = asyncHandler(async (req: Request, res: Response<Pagi
     throw new ApiError('Failed to fetch questions', 500);
   }
 
+  const transformedQuestions = questions?.map(q => transformSupabaseResponse<Question>(q)) || [];
+
   res.json({
     success: true,
-    data: questions || [],
+    data: transformedQuestions,
     pagination: {
       page,
       perPage,
@@ -105,7 +108,7 @@ export const getQuestion = asyncHandler(async (req: Request, res: Response) => {
 
   res.json({
     success: true,
-    data: question
+    data: transformSupabaseResponse<Question>(question)
   });
 });
 
@@ -153,7 +156,7 @@ export const updateQuestion = asyncHandler(async (req: Request, res: Response) =
 
   res.json({
     success: true,
-    data: question
+    data: transformSupabaseResponse<Question>(question)
   });
 });
 
@@ -235,9 +238,11 @@ export const generateQuestions = asyncHandler(async (req: Request, res: Response
     throw new ApiError('Failed to save generated questions', 500);
   }
 
+  const transformedQuestions = questions?.map(q => transformSupabaseResponse<Question>(q)) || [];
+
   res.status(201).json({
     success: true,
-    data: questions,
+    data: transformedQuestions,
     message: `Successfully generated ${questions.length} questions`
   });
 });
@@ -275,9 +280,11 @@ export const bulkImportQuestions = asyncHandler(async (req: Request, res: Respon
     throw new ApiError('Failed to import questions', 500);
   }
 
+  const transformedQuestions = importedQuestions?.map(q => transformSupabaseResponse<Question>(q)) || [];
+
   res.status(201).json({
     success: true,
-    data: importedQuestions,
+    data: transformedQuestions,
     message: `Successfully imported ${importedQuestions.length} questions`
   });
 });
@@ -302,8 +309,10 @@ export const getQuestionsByIds = asyncHandler(async (req: Request, res: Response
     throw new ApiError('Failed to fetch questions', 500);
   }
 
+  const transformedQuestions = questions?.map(q => transformSupabaseResponse<Question>(q)) || [];
+
   res.json({
     success: true,
-    data: questions || []
+    data: transformedQuestions
   });
 });

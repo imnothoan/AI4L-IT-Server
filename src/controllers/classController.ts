@@ -2,6 +2,7 @@ import type { Request, Response } from 'express';
 import { supabaseAdmin } from '../config/supabase.js';
 import { ApiError, asyncHandler } from '../middleware/errorHandler.js';
 import type { Class, PaginatedResponse } from '../types/index.js';
+import { transformSupabaseResponse } from '../utils/caseTransform.js';
 
 export const createClass = asyncHandler(async (req: Request, res: Response) => {
   if (!req.user || req.user.role !== 'instructor') {
@@ -24,9 +25,12 @@ export const createClass = asyncHandler(async (req: Request, res: Response) => {
     throw new ApiError('Failed to create class', 500);
   }
 
+  // Transform snake_case to camelCase before sending to frontend
+  const transformedClass = transformSupabaseResponse<Class>(classItem);
+
   res.status(201).json({
     success: true,
-    data: classItem
+    data: transformedClass
   });
 });
 
@@ -57,9 +61,12 @@ export const getClasses = asyncHandler(async (req: Request, res: Response<Pagina
     throw new ApiError('Failed to fetch classes', 500);
   }
 
+  // Transform all classes to camelCase
+  const transformedClasses = classes?.map(cls => transformSupabaseResponse<Class>(cls)) || [];
+
   res.json({
     success: true,
-    data: classes || [],
+    data: transformedClasses,
     pagination: {
       page,
       perPage,
@@ -84,7 +91,7 @@ export const getClass = asyncHandler(async (req: Request, res: Response) => {
 
   res.json({
     success: true,
-    data: classItem
+    data: transformSupabaseResponse<Class>(classItem)
   });
 });
 
@@ -123,7 +130,7 @@ export const updateClass = asyncHandler(async (req: Request, res: Response) => {
 
   res.json({
     success: true,
-    data: classItem
+    data: transformSupabaseResponse<Class>(classItem)
   });
 });
 
@@ -164,7 +171,8 @@ export const addStudentToClass = asyncHandler(async (req: Request, res: Response
     throw new ApiError('Only instructors can add students to classes', 403);
   }
 
-  const { classId, studentId } = req.body;
+  const { id: classId } = req.params;  // Get from URL
+  const { studentId } = req.body;
 
   // Verify class ownership
   const { data: classItem } = await supabaseAdmin
@@ -207,7 +215,7 @@ export const addStudentToClass = asyncHandler(async (req: Request, res: Response
 
   res.status(201).json({
     success: true,
-    data
+    data: transformSupabaseResponse(data)
   });
 });
 
@@ -267,9 +275,12 @@ export const getClassStudents = asyncHandler(async (req: Request, res: Response)
     throw new ApiError('Failed to fetch class students', 500);
   }
 
+  // Transform nested user data
+  const transformedStudents = students?.map(s => transformSupabaseResponse(s)) || [];
+
   res.json({
     success: true,
-    data: students || []
+    data: transformedStudents
   });
 });
 
@@ -297,8 +308,66 @@ export const getClassExams = asyncHandler(async (req: Request, res: Response) =>
     throw new ApiError('Failed to fetch class exams', 500);
   }
 
+  // Transform nested exam data
+  const transformedExams = exams?.map(e => transformSupabaseResponse(e)) || [];
+
   res.json({
     success: true,
-    data: exams || []
+    data: transformedExams
+  });
+});
+
+export const getClassesByStudent = asyncHandler(async (req: Request, res: Response) => {
+  const { studentId } = req.params;
+
+  // Verify permission (student can see their own classes, instructor/admin can see any)
+  if (req.user?.role === 'student' && req.user.id !== studentId) {
+    throw new ApiError('Unauthorized access to student classes', 403);
+  }
+
+  const { data: classStudents, error } = await supabaseAdmin
+    .from('class_students')
+    .select(`
+      class_id,
+      joined_at,
+      classes:class_id (
+        id,
+        name,
+        description,
+        instructor_id,
+        created_at,
+        updated_at,
+        exam_assignments (
+          exam_id
+        )
+      )
+    `)
+    .eq('student_id', studentId);
+
+  if (error) {
+    console.error('Error fetching student classes:', error);
+    throw new ApiError('Failed to fetch student classes', 500);
+  }
+
+  // Transform and flatten
+  const classes = classStudents?.map(cs => {
+    const clsData = cs.classes as any;
+    const examIds = clsData.exam_assignments?.map((ea: any) => ea.exam_id) || [];
+
+    // Remove exam_assignments from the class object before transformation to avoid clutter
+    const { exam_assignments, ...classFields } = clsData;
+
+    const cls = transformSupabaseResponse<Class>(classFields);
+    return {
+      ...cls,
+      joinedAt: cs.joined_at,
+      students: [studentId],
+      exams: examIds
+    };
+  }) || [];
+
+  res.json({
+    success: true,
+    data: classes
   });
 });

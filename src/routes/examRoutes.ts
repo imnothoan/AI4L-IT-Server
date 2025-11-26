@@ -15,6 +15,12 @@ router.get('/', validate(schemas.pagination, 'query'), examController.getExams);
 // Get single exam
 router.get('/:id', examController.getExam);
 
+// Get instructor exams
+router.get('/instructor/:instructorId', examController.getExams);
+
+// Get available exams for student
+router.get('/student/:studentId/available', examController.getAvailableExamsForStudent);
+
 // Create exam (instructor only)
 router.post(
   '/',

@@ -2,6 +2,7 @@ import type { Request, Response } from 'express';
 import { supabaseAdmin } from '../config/supabase.js';
 import { ApiError, asyncHandler } from '../middleware/errorHandler.js';
 import type { Exam, PaginatedResponse } from '../types/index.js';
+import { transformSupabaseResponse } from '../utils/caseTransform.js';
 
 export const createExam = asyncHandler(async (req: Request, res: Response) => {
   if (!req.user || req.user.role !== 'instructor') {
@@ -26,7 +27,7 @@ export const createExam = asyncHandler(async (req: Request, res: Response) => {
 
   res.status(201).json({
     success: true,
-    data: exam
+    data: transformSupabaseResponse<Exam>(exam)
   });
 });
 
@@ -57,9 +58,11 @@ export const getExams = asyncHandler(async (req: Request, res: Response<Paginate
     throw new ApiError('Failed to fetch exams', 500);
   }
 
+  const transformedExams = exams?.map(e => transformSupabaseResponse<Exam>(e)) || [];
+
   res.json({
     success: true,
-    data: exams || [],
+    data: transformedExams,
     pagination: {
       page,
       perPage,
@@ -84,7 +87,7 @@ export const getExam = asyncHandler(async (req: Request, res: Response) => {
 
   res.json({
     success: true,
-    data: exam
+    data: transformSupabaseResponse<Exam>(exam)
   });
 });
 
@@ -123,7 +126,7 @@ export const updateExam = asyncHandler(async (req: Request, res: Response) => {
 
   res.json({
     success: true,
-    data: exam
+    data: transformSupabaseResponse<Exam>(exam)
   });
 });
 
@@ -181,6 +184,62 @@ export const assignExamToClass = asyncHandler(async (req: Request, res: Response
 
   res.status(201).json({
     success: true,
-    data
+    data: transformSupabaseResponse(data)
+  });
+});
+
+export const getAvailableExamsForStudent = asyncHandler(async (req: Request, res: Response) => {
+  const { studentId } = req.params;
+
+  // Verify permission
+  if (req.user?.role === 'student' && req.user.id !== studentId) {
+    throw new ApiError('Unauthorized access to student exams', 403);
+  }
+
+  // 1. Get classes student is enrolled in
+  const { data: classStudents, error: classError } = await supabaseAdmin
+    .from('class_students')
+    .select('class_id')
+    .eq('student_id', studentId);
+
+  if (classError) {
+    throw new ApiError('Failed to fetch student classes', 500);
+  }
+
+  const classIds = classStudents?.map(cs => cs.class_id) || [];
+
+  if (classIds.length === 0) {
+    return res.json({ success: true, data: [] });
+  }
+
+  // 2. Get exams assigned to these classes
+  const { data: assignments, error: assignError } = await supabaseAdmin
+    .from('exam_assignments')
+    .select('exam_id')
+    .in('class_id', classIds);
+
+  if (assignError) {
+    throw new ApiError('Failed to fetch exam assignments', 500);
+  }
+
+  const examIds = assignments?.map(a => a.exam_id) || [];
+
+  if (examIds.length === 0) {
+    return res.json({ success: true, data: [] });
+  }
+
+  // 3. Get exam details
+  const { data: exams, error: examError } = await supabaseAdmin
+    .from('exams')
+    .select('*')
+    .in('id', examIds);
+
+  if (examError) {
+    throw new ApiError('Failed to fetch exams', 500);
+  }
+
+  res.json({
+    success: true,
+    data: exams?.map(e => transformSupabaseResponse<Exam>(e)) || []
   });
 });

@@ -10,7 +10,9 @@ import rateLimit from 'express-rate-limit';
 
 import { config, validateConfig } from './config/index.js';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
+// Services
 import { websocketService } from './services/websocketService.js';
+import { proctorWebSocketService } from './services/proctorWebSocketService.js';
 
 // Import routes
 import authRoutes from './routes/authRoutes.js';
@@ -20,6 +22,7 @@ import classRoutes from './routes/classRoutes.js';
 import attemptRoutes from './routes/attemptRoutes.js';
 import studentRoutes from './routes/studentRoutes.js';
 import anticheatRoutes from './routes/anticheatRoutes.js';
+import generationRoutes from './routes/generationRoutes.js';
 
 // Load environment variables
 
@@ -100,6 +103,7 @@ app.use(`${apiPrefix}/classes`, classRoutes);
 app.use(`${apiPrefix}/attempts`, attemptRoutes);
 app.use(`${apiPrefix}/students`, studentRoutes);
 app.use(`${apiPrefix}/anticheat`, anticheatRoutes);
+app.use(`${apiPrefix}/generation`, generationRoutes);
 
 // Root endpoint
 app.get('/', (_req, res) => {
