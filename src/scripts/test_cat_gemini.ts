@@ -1,5 +1,5 @@
-import { catService } from '../services/catService';
-import { geminiService } from '../services/geminiService';
+import { catService } from '../services/catService.js';
+import { geminiService } from '../services/geminiService.js';
 
 async function testCatEngine() {
     console.log('--- Testing CAT Engine Logic ---');

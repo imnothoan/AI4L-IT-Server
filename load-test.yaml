@@ -1,0 +1,43 @@
+config:
+  target: "http://localhost:3000"
+  phases:
+    - duration: 60
+      arrivalRate: 5
+      rampTo: 20
+      name: "Warm up"
+    - duration: 120
+      arrivalRate: 20
+      name: "Sustained load"
+  plugins:
+    ensure: {}
+  ensure:
+    maxErrorRate: 1
+  variables:
+    studentEmail: "student@test.com"
+    studentPassword: "password123"
+
+scenarios:
+  - name: "Student Exam Flow"
+    flow:
+      # 1. Login
+      - post:
+          url: "/api/auth/login"
+          json:
+            email: "{{ studentEmail }}"
+            password: "{{ studentPassword }}"
+            role: "student"
+          capture:
+            - json: "$.data.token"
+              as: "token"
+            - json: "$.data.user.id"
+              as: "userId"
+      
+      # 2. Get Dashboard Data
+      - get:
+          url: "/api/classes/student/{{ userId }}"
+          headers:
+            Authorization: "Bearer {{ token }}"
+      - get:
+          url: "/api/exams/student/{{ userId }}/available"
+          headers:
+            Authorization: "Bearer {{ token }}"

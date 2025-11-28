@@ -5,8 +5,8 @@
  */
 
 import request from 'supertest';
-import app from '../app';
-import { supabaseAdmin } from '../config/supabase';
+import app from '../app.js';
+import { supabaseAdmin } from '../config/supabase.js';
 
 describe('CAT Controller Integration', () => {
     let examId: string;

@@ -13,22 +13,14 @@ const isDevelopment = process.env.NODE_ENV !== 'production';
 
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: isDevelopment ? 100 : 5, // Dev: 100/window, Prod: 5/window
-  message: {
-    success: false,
-    error: 'Too many authentication attempts, please try again later.'
-  },
-  standardHeaders: true,
-  legacyHeaders: false
+  max: isDevelopment ? 1000 : 5, // Dev: 1000/window, Prod: 5/window
+  message: 'Too many login attempts from this IP, please try again after 15 minutes'
 });
 
 const passwordChangeLimiter = rateLimit({
   windowMs: 60 * 60 * 1000, // 1 hour
   max: isDevelopment ? 20 : 3, // Dev: 20/hour, Prod: 3/hour
-  message: {
-    success: false,
-    error: 'Too many password change attempts, please try again later.'
-  }
+  message: 'Too many password change attempts, please try again after an hour'
 });
 
 // Public routes with rate limiting

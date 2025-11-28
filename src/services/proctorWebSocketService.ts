@@ -1,10 +1,11 @@
 import { WebSocket, WebSocketServer } from 'ws';
 import type { IncomingMessage } from 'http';
-import jwt from 'jsonwebtoken';
+import * as jwt from 'jsonwebtoken';
 import { config } from '../config/index.js';
 
 interface Client {
     ws: WebSocket;
+    id: string;
     userId: string;
     role: 'student' | 'instructor' | 'proctor';
     examId?: string;
@@ -36,15 +37,16 @@ class ProctorWebSocketService {
         }
 
         try {
-            const decoded = jwt.verify(token, config.jwtSecret) as any;
+            const decoded = jwt.verify(token, config.JWT_SECRET) as { id: string; role: string };
             const clientId = `${decoded.id}-${Date.now()}`;
 
             const client: Client = {
                 ws,
+                id: clientId,
                 userId: decoded.id,
-                role: decoded.role
+                role: decoded.role as 'student' | 'instructor' | 'proctor',
+                examId: null as string | null
             };
-
             this.clients.set(clientId, client);
 
             if (client.role === 'instructor' || client.role === 'proctor') {

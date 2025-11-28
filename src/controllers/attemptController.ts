@@ -126,7 +126,41 @@ export const getNextQuestion = asyncHandler(async (req: Request, res: Response) 
     );
 
     if (!nextQuestion) {
-      // CAT stopping criteria reached
+      // Try generating with Gemini if enabled
+      if (geminiService.isAvailable()) {
+        console.log('CAT: Bank exhausted, generating question with Gemini...');
+        try {
+          const generated = await geminiService.generateQuestions('General', catState.theta, 1);
+          if (generated && generated.length > 0) {
+            const q = generated[0];
+            // Save to DB
+            const { data: newQ, error: createError } = await supabaseAdmin.from('questions').insert({
+              content: q.content,
+              options: q.options,
+              correct_answer: q.correct_answer,
+              difficulty: q.difficulty,
+              discrimination: q.discrimination,
+              guessing: q.guessing,
+              topic: q.topic,
+              type: 'multiple-choice', // Default
+              points: 1,
+              created_at: new Date().toISOString()
+            }).select().single();
+
+            if (!createError && newQ) {
+              return res.json({
+                success: true,
+                data: transformSupabaseResponse(newQ),
+                reason: 'AI Generated Question'
+              });
+            }
+          }
+        } catch (genError) {
+          console.error('Gemini generation failed:', genError);
+        }
+      }
+
+      // CAT stopping criteria reached or generation failed
       return res.json({
         success: true,
         data: null,
@@ -461,6 +495,52 @@ export const getStudentAttempts = asyncHandler(async (req: Request, res: Respons
   if (error) {
     console.error('Error fetching student attempts:', error);
     throw new ApiError('Failed to fetch student attempts', 500);
+  }
+
+  const transformedAttempts = attempts?.map(a => transformSupabaseResponse(a)) || [];
+
+  res.json({
+    success: true,
+    data: transformedAttempts
+  });
+});
+/**
+ * Get all exam attempts for an instructor (across all their exams)
+ */
+export const getInstructorAttempts = asyncHandler(async (req: Request, res: Response) => {
+  if (!req.user || req.user.role !== 'instructor') {
+    throw new ApiError('Only instructors can view their attempts', 403);
+  }
+
+  // 1. Get all exams created by this instructor
+  const { data: exams, error: examError } = await supabaseAdmin
+    .from('exams')
+    .select('id')
+    .eq('instructor_id', req.user.id);
+
+  if (examError) {
+    throw new ApiError('Failed to fetch instructor exams', 500);
+  }
+
+  const examIds = exams.map(e => e.id);
+
+  if (examIds.length === 0) {
+    return res.json({
+      success: true,
+      data: []
+    });
+  }
+
+  // 2. Get attempts for these exams
+  const { data: attempts, error: attemptError } = await supabaseAdmin
+    .from('exam_attempts')
+    .select('*, exams(id, title), users(id, name, email)')
+    .in('exam_id', examIds)
+    .order('started_at', { ascending: false });
+
+  if (attemptError) {
+    console.error('Error fetching instructor attempts:', attemptError);
+    throw new ApiError('Failed to fetch attempts', 500);
   }
 
   const transformedAttempts = attempts?.map(a => transformSupabaseResponse(a)) || [];

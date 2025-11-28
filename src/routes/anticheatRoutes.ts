@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { supabase } from '../config/supabase';
+import { supabaseAdmin } from '../config/supabase.js';
 import { authMiddleware as authenticateToken } from '../middleware/auth.js';
 
 const router = Router();
@@ -17,7 +17,7 @@ router.post('/violations', authenticateToken, async (req, res) => {
         }
 
         // Insert violation into database
-        const { data, error } = await supabase
+        const { data, error } = await supabaseAdmin
             .from('anticheat_violations')
             .insert({
                 attempt_id: attemptId,
@@ -33,7 +33,7 @@ router.post('/violations', authenticateToken, async (req, res) => {
         if (error) throw error;
 
         // Check if should lock exam (3+ violations)
-        const { data: violationCount } = await supabase
+        const { data: violationCount } = await supabaseAdmin
             .from('anticheat_violations')
             .select('id', { count: 'exact' })
             .eq('attempt_id', attemptId);
@@ -42,7 +42,7 @@ router.post('/violations', authenticateToken, async (req, res) => {
 
         if (shouldLock) {
             // Lock the exam attempt
-            await supabase
+            await supabaseAdmin
                 .from('exam_attempts')
                 .update({
                     status: 'locked',
@@ -72,7 +72,7 @@ router.get('/violations/:attemptId', authenticateToken, async (req, res) => {
     try {
         const { attemptId } = req.params;
 
-        const { data, error } = await supabase
+        const { data, error } = await supabaseAdmin
             .from('anticheat_violations')
             .select('*')
             .eq('attempt_id', attemptId)
@@ -100,7 +100,7 @@ router.get('/exam/:examId/summary', authenticateToken, async (req, res) => {
         const { examId } = req.params;
 
         // Get all attempts for this exam
-        const { data: attempts } = await supabase
+        const { data: attempts } = await supabaseAdmin
             .from('exam_attempts')
             .select('id')
             .eq('exam_id', examId);
@@ -116,23 +116,23 @@ router.get('/exam/:examId/summary', authenticateToken, async (req, res) => {
             });
         }
 
-        const attemptIds = attempts.map(a => a.id);
+        const attemptIds = attempts.map((a: any) => a.id);
 
         // Get all violations for these attempts
-        const { data: violations } = await supabase
+        const { data: violations } = await supabaseAdmin
             .from('anticheat_violations')
             .select('*')
             .in('attempt_id', attemptIds);
 
         // Aggregate by type
         const violationCounts: Record<string, number> = {};
-        violations?.forEach(v => {
+        violations?.forEach((v: any) => {
             violationCounts[v.type] = (violationCounts[v.type] || 0) + 1;
         });
 
         // Find students with 2+ violations
         const attemptViolations: Record<string, number> = {};
-        violations?.forEach(v => {
+        violations?.forEach((v: any) => {
             attemptViolations[v.attempt_id] = (attemptViolations[v.attempt_id] || 0) + 1;
         });
 
@@ -166,13 +166,13 @@ router.get('/violations/:attemptId/export', authenticateToken, async (req, res) 
         // TODO: Generate PDF report using library like pdfkit
         // For now, return JSON that can be used to generate PDF on frontend
 
-        const { data: violations } = await supabase
+        const { data: violations } = await supabaseAdmin
             .from('anticheat_violations')
             .select('*')
             .eq('attempt_id', attemptId)
             .order('detected_at', { ascending: true });
 
-        const { data: attempt } = await supabase
+        const { data: attempt } = await supabaseAdmin
             .from('exam_attempts')
             .select(`
                 *,
@@ -193,6 +193,67 @@ router.get('/violations/:attemptId/export', authenticateToken, async (req, res) 
     } catch (error: any) {
         console.error('Export report error:', error);
         res.status(500).json({ error: 'Failed to export report', details: error.message });
+    }
+});
+
+/**
+ * Get active sessions for proctor dashboard
+ * GET /api/anticheat/sessions
+ */
+router.get('/sessions', authenticateToken, async (req, res) => {
+    try {
+        // Get all in-progress attempts
+        const { data: attempts, error } = await supabaseAdmin
+            .from('exam_attempts')
+            .select(`
+                id,
+                status,
+                started_at,
+                updated_at,
+                current_theta,
+                questions_answered,
+                exams (title),
+                profiles (full_name)
+            `)
+            .eq('status', 'in-progress')
+            .order('started_at', { ascending: false });
+
+        if (error) throw error;
+
+        // Get violation counts for these attempts
+        const attemptIds = attempts.map((a: any) => a.id);
+        const { data: violations } = await supabaseAdmin
+            .from('anticheat_violations')
+            .select('attempt_id')
+            .in('attempt_id', attemptIds);
+
+        const violationCounts: Record<string, number> = {};
+        violations?.forEach((v: any) => {
+            violationCounts[v.attempt_id] = (violationCounts[v.attempt_id] || 0) + 1;
+        });
+
+        // Format response
+        const sessions = attempts.map((a: any) => ({
+            id: a.id,
+            studentName: a.profiles?.full_name || 'Unknown Student',
+            examTitle: a.exams?.title || 'Unknown Exam',
+            currentTheta: a.current_theta || 0,
+            standardError: 0, // TODO: Store SE in DB
+            questionsAnswered: a.questions_answered || 0,
+            cheatWarnings: violationCounts[a.id] || 0,
+            webcamStatus: 'active', // Placeholder
+            screenStatus: 'normal', // Placeholder
+            startedAt: a.started_at,
+            lastActivity: a.updated_at
+        }));
+
+        res.json({
+            success: true,
+            sessions
+        });
+    } catch (error: any) {
+        console.error('Get active sessions error:', error);
+        res.status(500).json({ error: 'Failed to fetch sessions', details: error.message });
     }
 });
 

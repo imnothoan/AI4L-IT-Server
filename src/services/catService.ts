@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
-import { supabase } from '../config/supabase';
+import { supabase } from '../config/supabase.js';
 
 // Types
 interface Item {
@@ -17,6 +17,35 @@ interface TestSession {
     theta: number; // Current ability estimate
     sem: number; // Standard Error of Measurement
     administered_items: string[]; // IDs of items already taken
+}
+
+export interface CATState {
+    theta: number;
+    sem: number;
+    administered_items: string[];
+    responses: any[];
+    start_time: string;
+    ability_estimate?: number;
+}
+
+export interface CATSettings {
+    algorithm: 'mfi' | 'random';
+    test_length: number;
+}
+
+export interface Question {
+    id: string;
+    difficulty?: number;
+    discrimination?: number;
+    guessing?: number;
+    topic?: string;
+    content?: string;
+    irtParameters?: {
+        difficultyIRT: number;
+        discrimination: number;
+        guessing: number;
+    };
+    [key: string]: any;
 }
 
 export class CatService {
@@ -50,16 +79,14 @@ export class CatService {
 
     /**
      * Select next item using Maximum Fisher Information (MFI)
-     * TODO: Add Content Balancing (Shadow Test) and Exposure Control
      */
     async selectNextItem(session: TestSession): Promise<Item | null> {
         // 1. Fetch candidate items (not administered)
-        // In a real app, we might fetch a subset or use a cached bank
         const { data: items, error } = await supabase
             .from('questions')
             .select('*')
-            .not('id', 'in', `(${session.administered_items.join(',')})`) // Naive exclusion, optimize for large banks
-            .limit(100); // Optimization: only fetch relevant difficulty range?
+            .not('id', 'in', `(${session.administered_items.join(',')})`)
+            .limit(100);
 
         if (error || !items || items.length === 0) return null;
 
@@ -88,15 +115,8 @@ export class CatService {
 
     /**
      * Estimate Theta using Bayesian MAP (Maximum A Posteriori)
-     * Prior: Normal(0, 1)
-     * Posterior proportional to: Likelihood * Prior
-     * We maximize: log(Likelihood) + log(Prior)
      */
     calculateTheta(administeredItems: Item[], responses: number[]): { theta: number, sem: number } {
-        // Simple Newton-Raphson or bounded search could work. 
-        // For robustness/simplicity here, we'll use a coarse grid search followed by a finer search 
-        // (or just a simple optimization since TS stdlib is limited compared to SciPy).
-
         // Grid Search Implementation for stability
         let bestTheta = -3.0;
         let maxLogPosterior = -Infinity;
@@ -106,7 +126,7 @@ export class CatService {
         const step = 0.1;
 
         for (let t = minTheta; t <= maxTheta; t += step) {
-            const logPrior = -0.5 * t * t; // log(e^(-t^2/2)) approx, ignoring constants
+            const logPrior = -0.5 * t * t; // log(e^(-t^2/2)) approx
             let logLikelihood = 0;
 
             for (let i = 0; i < administeredItems.length; i++) {
@@ -129,9 +149,7 @@ export class CatService {
             }
         }
 
-        // Calculate SEM (approximate using Information at bestTheta)
-        // SEM = 1 / sqrt(Total Information + Prior Information)
-        // Prior Information for N(0,1) is 1
+        // Calculate SEM
         let totalInfo = 1.0;
         for (const item of administeredItems) {
             totalInfo += this.fisherInformation(bestTheta, item);
@@ -139,6 +157,91 @@ export class CatService {
         const sem = 1 / Math.sqrt(totalInfo);
 
         return { theta: bestTheta, sem };
+    }
+
+    /**
+     * Initialize CAT State
+     */
+    initializeState(_settings?: CATSettings): CATState {
+        return {
+            theta: 0,
+            sem: 1,
+            administered_items: [],
+            responses: [],
+            start_time: new Date().toISOString()
+        };
+    }
+
+    /**
+     * Select next question wrapper (Synchronous/Local version used by Controller)
+     */
+    selectNextQuestion(
+        state: CATState,
+        availableQuestions: Question[],
+        _settings?: CATSettings
+    ): { question: Question; reason: string } | null {
+
+        let bestItem: Question | null = null;
+        let maxInfo = -1;
+
+        for (const q of availableQuestions) {
+            const item: Item = {
+                id: q.id,
+                difficulty: q.difficulty || 0,
+                discrimination: q.discrimination || 1,
+                guessing: q.guessing || 0.25,
+                content_area: q.topic || 'general'
+            };
+
+            // Use irtParameters if available
+            if (q.irtParameters) {
+                item.discrimination = q.irtParameters.discrimination;
+                item.difficulty = q.irtParameters.difficultyIRT;
+                item.guessing = q.irtParameters.guessing;
+            }
+
+            const info = this.fisherInformation(state.theta, item);
+            if (info > maxInfo) {
+                maxInfo = info;
+                bestItem = q;
+            }
+        }
+
+        if (bestItem) {
+            return {
+                question: bestItem,
+                reason: `Maximum Fisher Information at theta ${state.theta.toFixed(2)}`
+            };
+        }
+
+        return null;
+    }
+
+    /**
+     * Update Ability (Theta)
+     */
+    updateAbility(state: CATState, itemDifficulty: number, isCorrect: boolean): CATState {
+        const currentTheta = state.theta;
+        const p = this.irf3pl(currentTheta, 1.0, itemDifficulty, 0.25);
+        const score = isCorrect ? 1 : 0;
+
+        // Simple update step
+        const newTheta = currentTheta + 0.5 * (score - p);
+
+        return {
+            ...state,
+            theta: Math.max(-4, Math.min(4, newTheta)),
+            sem: state.sem * 0.95,
+            ability_estimate: newTheta
+        };
+    }
+
+    /**
+     * Calculate Score (0-100) from Theta
+     */
+    calculateScore(theta: number): number {
+        let score = ((theta + 3) / 6) * 100;
+        return Math.round(Math.max(0, Math.min(100, score)));
     }
 }
 

@@ -5,10 +5,12 @@ import type { ApiResponse } from '../types/index.js';
 export class ApiError extends Error {
   statusCode: number;
   isOperational: boolean;
+  data?: any;
 
-  constructor(message: string, statusCode: number = 500, isOperational: boolean = true) {
+  constructor(message: string, statusCode: number = 500, data?: any, isOperational: boolean = true) {
     super(message);
     this.statusCode = statusCode;
+    this.data = data;
     this.isOperational = isOperational;
     Error.captureStackTrace(this, this.constructor);
   }
@@ -26,7 +28,8 @@ export const errorHandler = (
   if (err instanceof ApiError) {
     res.status(err.statusCode).json({
       success: false,
-      error: err.message
+      error: err.message,
+      data: err.data
     });
     return;
   }
@@ -43,8 +46,8 @@ export const errorHandler = (
   // Default error
   res.status(500).json({
     success: false,
-    error: process.env.NODE_ENV === 'production' 
-      ? 'Internal server error' 
+    error: process.env.NODE_ENV === 'production'
+      ? 'Internal server error'
       : err.message
   });
 };

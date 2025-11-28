@@ -1,0 +1,173 @@
+config:
+  target: "http://localhost:3000"
+  phases:
+    # Phase 1: Warm up (60s, 5->50 users/sec)
+    - duration: 60
+      arrivalRate: 5
+      rampTo: 50
+      name: "Warm-up Phase"
+    
+    # Phase 2: Sustained load (300s, 100 users/sec)
+    - duration: 300
+      arrivalRate: 100
+      name: "Sustained Load - 100 RPS"
+    
+    # Phase 3: Peak load (120s, 200 users/sec)
+    - duration: 120
+      arrivalRate: 200
+      name: "Peak Load - 200 RPS"
+    
+    # Phase 4: Spike test (60s, 500 users/sec)
+    - duration: 60
+      arrivalRate: 500
+      name: "Spike Test - 500 RPS"
+    
+    # Phase 5: Cool down (60s, 500->10 users/sec)
+    - duration: 60
+      arrivalRate: 500
+      rampTo: 10
+      name: "Cool Down"
+
+  plugins:
+    metrics-by-endpoint:
+      stripQueryString: true
+    ensure:
+      thresholds:
+        - http.response_time.p95: 500 # 95th percentile < 500ms
+        - http.response_time.p99: 1000 # 99th percentile < 1s
+        - http.request_rate: 50 # Min 50 req/sec
+
+  processor: "./load-processor.js"
+
+scenarios:
+  - name: "Full CAT Exam Flow - Adaptive Testing"
+    weight: 80
+    flow:
+      # 1. Login as student
+      - post:
+          url: "/api/auth/login"
+          json:
+            email: "student@test.com"
+            password: "password123"
+            role: "student"
+          capture:
+            - json: "$.data.token"
+              as: "authToken"
+            - json: "$.data.user.id"
+              as: "userId"
+          expect:
+            - statusCode: 200
+
+      # 2. Get available exams
+      - get:
+          url: "/api/exams/student/{{ userId }}/available"
+          headers:
+            Authorization: "Bearer {{ authToken }}"
+          capture:
+            - json: "$[0].id"
+              as: "examId"
+          expect:
+            - statusCode: 200
+
+      # 3. Start CAT session
+      - post:
+          url: "/api/cat/start"
+          headers:
+            Authorization: "Bearer {{ authToken }}"
+          json:
+            examId: "{{ examId }}"
+          capture:
+            - json: "$.data.attemptId"
+              as: "attemptId"
+            - json: "$.data.nextQuestion.id"
+              as: "questionId"
+          expect:
+            - statusCode: 200
+
+      # 4. Answer 15 questions adaptively
+      - loop:
+        - think: 2 # Simulate student reading time
+        - post:
+            url: "/api/cat/next"
+            headers:
+              Authorization: "Bearer {{ authToken }}"
+            json:
+              attemptId: "{{ attemptId }}"
+              questionId: "{{ questionId }}"
+              answer: "{{ $randomNumber(0, 3) }}" # Random answer
+            capture:
+              - json: "$.data.nextQuestion.id"
+                as: "questionId"
+              - json: "$.data.currentTheta"
+                as: "theta"
+              - json: "$.data.standardError"
+                as: "se"
+            expect:
+              - statusCode: 200
+        count: 15
+
+  - name: "Browse Dashboard & Classes"
+    weight: 15
+    flow:
+      - post:
+          url: "/api/auth/login"
+          json:
+            email: "student@test.com"
+            password: "password123"
+            role: "student"
+          capture:
+            - json: "$.data.token"
+              as: "authToken"
+            - json: "$.data.user.id"
+              as: "userId"
+
+      - get:
+          url: "/api/classes/student/{{ userId }}"
+          headers:
+            Authorization: "Bearer {{ authToken }}"
+          expect:
+            - statusCode: 200
+
+      - think: 1
+
+      - get:
+          url: "/api/students/{{ userId }}/performance"
+          headers:
+            Authorization: "Bearer {{ authToken }}"
+          expect:
+            - statusCode: 200
+
+  - name: "Instructor Monitoring"
+    weight: 5
+    flow:
+      - post:
+          url: "/api/auth/login"
+          json:
+            email: "instructor@test.com"
+            password: "password123"
+            role: "instructor"
+          capture:
+            - json: "$.data.token"
+              as: "authToken"
+
+      - get:
+          url: "/api/exams"
+          headers:
+            Authorization: "Bearer {{ authToken }}"
+          capture:
+            - json: "$[0].id"
+              as: "examId"
+
+      - get:
+          url: "/api/exams/{{ examId }}/sessions/active"
+          headers:
+            Authorization: "Bearer {{ authToken }}"
+          expect:
+            - statusCode: 200
+
+      - get:
+          url: "/api/exams/{{ examId }}/statistics"
+          headers:
+            Authorization: "Bearer {{ authToken }}"
+          expect:
+            - statusCode: 200

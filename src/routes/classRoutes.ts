@@ -40,8 +40,8 @@ router.put('/:id', requireRole('instructor'), classController.updateClass);
 // Delete class (instructor only)
 router.delete('/:id', requireRole('instructor'), classController.deleteClass);
 
-// Add student to class (instructor only)
-router.post('/:id/students', requireRole('instructor'), classController.addStudentToClass);
+// Add student to class (Instructor or Student themselves)
+router.post('/:id/students', classController.addStudentToClass);
 
 // Remove student from class (instructor only)
 router.delete(

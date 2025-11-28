@@ -38,12 +38,12 @@ export const schemas = {
   // Class schemas
   createClass: Joi.object({
     name: Joi.string().min(2).max(200).required(),
-    description: Joi.string().max(1000).optional()
+    description: Joi.string().allow('').max(1000).optional()
   }),
 
   updateClass: Joi.object({
     name: Joi.string().min(2).max(200).optional(),
-    description: Joi.string().max(1000).optional()
+    description: Joi.string().allow('').max(1000).optional()
   }),
 
   // Question schemas
@@ -71,7 +71,7 @@ export const schemas = {
   // Exam schemas
   createExam: Joi.object({
     title: Joi.string().min(3).max(200).required(),
-    description: Joi.string().max(1000).optional(),
+    description: Joi.string().allow('').max(1000).optional(),
     duration_minutes: Joi.number().min(1).max(480).required(),
     enable_cat: Joi.boolean().default(false),
     enable_anti_cheat: Joi.boolean().default(false),

@@ -24,7 +24,7 @@ export const generateQuestions = asyncHandler(async (req: Request, res: Response
         throw new ApiError('Only instructors can generate questions', 403);
     }
 
-    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+    const model = genAI.getGenerativeModel({ model: 'gemini-pro' });
 
     // Advanced few-shot prompt with IRT calibration guidance
     const prompt = `<role>
@@ -136,42 +136,9 @@ Return ONLY a valid JSON array (no markdown fences, no extra text):
 
     } catch (error: any) {
         console.error('Gemini generation error:', error);
-
-        // Fallback to mock if Gemini fails
-        const mockQuestions = Array.from({ length: Math.min(count, 10) }).map((_, i) => ({
-            question: `Câu hỏi giả lập ${i + 1} môn ${subject} lớp ${grade}`,
-            type: 'multiple-choice',
-            options: ["Đáp án A", "Đáp án B", "Đáp án C", "Đáp án D"],
-            correct_answer: "Đáp án A",
-            explanation: "Giải thích giả lập",
-            topic: topics?.[0] || "Chủ đề tổng quát",
-            irt_parameters: {
-                a: 0.8 + Math.random() * 1.5,
-                b: -2 + Math.random() * 4,
-                c: 0.25
-            },
-            grade_level: { system: 'high-school', grade },
-            subject: { main: subject },
-            created_by: req.user!.id,
-            created_at: new Date().toISOString(),
-            version: 1,
-            status: 'draft'
-        }));
-
-        const { data: mockSaved } = await supabaseAdmin
-            .from('questions')
-            .insert(mockQuestions)
-            .select();
-
-        res.json({
-            success: true,
-            data: {
-                generated: mockQuestions.length,
-                saved: mockSaved?.length || 0,
-                questions: mockSaved,
-                usedMockFallback: true,
-                error: error.message
-            }
+        res.status(503).json({
+            success: false,
+            error: 'Hiện tại chức năng này không hoạt động (AI Service Unavailable)'
         });
     }
 });

@@ -217,10 +217,10 @@ export const generateQuestions = asyncHandler(async (req: Request, res: Response
     throw new ApiError('Gemini API is not configured. Please set GEMINI_API_KEY in environment variables.', 503);
   }
 
-  const params: QuestionGenerationRequest = req.body;
+  const { topic, difficulty, count } = req.body;
 
   // Generate questions with Gemini
-  const generatedQuestions = await geminiService.generateQuestions(params);
+  const generatedQuestions = await geminiService.generateQuestions(topic, difficulty, count);
 
   // Save questions to database
   const questionsToInsert = generatedQuestions.map(q => ({

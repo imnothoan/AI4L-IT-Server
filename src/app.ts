@@ -73,12 +73,7 @@ if (config.NODE_ENV === 'development') {
 const limiter = rateLimit({
   windowMs: config.RATE_LIMIT_WINDOW_MS,
   max: config.RATE_LIMIT_MAX_REQUESTS,
-  message: {
-    success: false,
-    error: 'Too many requests from this IP, please try again later.'
-  },
-  standardHeaders: true,
-  legacyHeaders: false
+  message: 'Too many requests from this IP, please try again after 15 minutes'
 });
 
 app.use('/api/', limiter);

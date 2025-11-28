@@ -28,9 +28,16 @@ export const createClass = asyncHandler(async (req: Request, res: Response) => {
   // Transform snake_case to camelCase before sending to frontend
   const transformedClass = transformSupabaseResponse<Class>(classItem);
 
+  // Explicitly add empty arrays for relations to match frontend expectation
+  const responseData = {
+    ...transformedClass,
+    students: [] as any[],
+    exams: [] as any[]
+  };
+
   res.status(201).json({
     success: true,
-    data: transformedClass
+    data: responseData
   });
 });
 
@@ -167,22 +174,34 @@ export const deleteClass = asyncHandler(async (req: Request, res: Response) => {
 });
 
 export const addStudentToClass = asyncHandler(async (req: Request, res: Response) => {
-  if (!req.user || req.user.role !== 'instructor') {
-    throw new ApiError('Only instructors can add students to classes', 403);
+  if (!req.user) {
+    throw new ApiError('User not authenticated', 401);
   }
 
   const { id: classId } = req.params;  // Get from URL
   const { studentId } = req.body;
 
-  // Verify class ownership
-  const { data: classItem } = await supabaseAdmin
-    .from('classes')
-    .select('instructor_id')
-    .eq('id', classId)
-    .single();
+  // Permission check:
+  // 1. Instructor can add any student (but must own the class)
+  // 2. Student can only add themselves
+  const isInstructor = req.user.role === 'instructor';
+  const isSelfAdd = req.user.role === 'student' && req.user.id === studentId;
 
-  if (!classItem || classItem.instructor_id !== req.user.id) {
-    throw new ApiError('Class not found or insufficient permissions', 404);
+  if (!isInstructor && !isSelfAdd) {
+    throw new ApiError('Unauthorized to add student to class', 403);
+  }
+
+  // If instructor, verify class ownership
+  if (isInstructor) {
+    const { data: classItem } = await supabaseAdmin
+      .from('classes')
+      .select('instructor_id')
+      .eq('id', classId)
+      .single();
+
+    if (!classItem || classItem.instructor_id !== req.user.id) {
+      throw new ApiError('Class not found or insufficient permissions', 404);
+    }
   }
 
   // Check if student exists

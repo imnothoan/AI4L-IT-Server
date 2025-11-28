@@ -1,5 +1,5 @@
 import type { Request, Response, NextFunction } from 'express';
-import bcrypt from 'bcrypt';
+import bcrypt from 'bcryptjs';
 import jwt, { type SignOptions } from 'jsonwebtoken';
 import { supabaseAdmin } from '../config/supabase.js';
 import { config } from '../config/index.js';
@@ -380,7 +380,7 @@ function generateToken(user: User): string {
   };
 
   return jwt.sign(payload, config.JWT_SECRET, {
-    expiresIn: config.JWT_EXPIRES_IN
+    expiresIn: config.JWT_EXPIRES_IN as any
   });
 }
 
@@ -388,11 +388,12 @@ function generateToken(user: User): string {
  * Generate refresh token
  */
 function generateRefreshToken(user: User): string {
-  return jwt.sign(
-    { userId: user.id },
-    config.JWT_REFRESH_SECRET,
-    { expiresIn: config.JWT_REFRESH_EXPIRES_IN }
+  const token = jwt.sign(
+    { id: user.id, role: user.role },
+    config.JWT_SECRET,
+    { expiresIn: config.JWT_EXPIRES_IN as any }
   );
+  return token;
 }
 
 /**

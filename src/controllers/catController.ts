@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
-import { supabase } from '../config/supabase';
-import { catService } from '../services/catService';
-import { geminiService } from '../services/geminiService';
+import { supabase } from '../config/supabase.js';
+import { catService } from '../services/catService.js';
+import { geminiService } from '../services/geminiService.js';
 
 export class CatController {
 
@@ -11,7 +11,7 @@ export class CatController {
      */
     async startExam(req: Request, res: Response) {
         try {
-            const { userId, examId } = req.body;
+            const { userId, examId } = req.body as any;
 
             // Initialize session in DB
             const { data: session, error } = await supabase
@@ -50,7 +50,7 @@ export class CatController {
      */
     async submitAnswer(req: Request, res: Response) {
         try {
-            const { sessionId, itemId, answer, isCorrect } = req.body;
+            const { sessionId, itemId, answer, isCorrect } = req.body as any;
 
             // 1. Record response
             await supabase.from('exam_responses').insert({

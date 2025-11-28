@@ -25,9 +25,17 @@ export const createExam = asyncHandler(async (req: Request, res: Response) => {
     throw new ApiError('Failed to create exam', 500);
   }
 
+  const transformedExam = transformSupabaseResponse<Exam>(exam);
+
+  // Explicitly add empty arrays for relations to match frontend expectation
+  const responseData = {
+    ...transformedExam,
+    questions: [] as any[]
+  };
+
   res.status(201).json({
     success: true,
-    data: transformSupabaseResponse<Exam>(exam)
+    data: responseData
   });
 });
 

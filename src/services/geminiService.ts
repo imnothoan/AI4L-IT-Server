@@ -15,12 +15,12 @@ interface GeneratedQuestion {
 }
 
 export class GeminiService {
-  private model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+  private model = genAI.getGenerativeModel({ model: 'gemini-pro' });
 
   async generateQuestions(topic: string, difficulty: number, count: number = 5): Promise<GeneratedQuestion[]> {
     if (!API_KEY) {
-      console.warn('Gemini API Key is missing. Returning mock questions.');
-      return this.getMockQuestions(topic, difficulty, count);
+      console.warn('Gemini API Key is missing.');
+      throw new Error('Hiện tại chức năng này không hoạt động (Missing API Key)');
     }
 
     const prompt = `
@@ -50,21 +50,12 @@ export class GeminiService {
       return questions.map(q => ({ ...q, topic }));
     } catch (error) {
       console.error('Error generating questions with Gemini:', error);
-      return this.getMockQuestions(topic, difficulty, count);
+      throw new Error('Hiện tại chức năng này không hoạt động (AI Service Error)');
     }
   }
 
-  private getMockQuestions(topic: string, difficulty: number, count: number): GeneratedQuestion[] {
-    return Array(count).fill(null).map((_, i) => ({
-      content: `Mock Question ${i + 1} about ${topic} (Diff: ${difficulty})`,
-      options: ['Option A', 'Option B', 'Option C', 'Option D'],
-      correct_answer: 'Option A',
-      explanation: 'This is a mock explanation.',
-      difficulty: difficulty,
-      discrimination: 1.0,
-      guessing: 0.25,
-      topic: topic
-    }));
+  isAvailable(): boolean {
+    return !!API_KEY;
   }
 }
 

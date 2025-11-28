@@ -146,6 +146,7 @@ export interface AuthResponse {
     expiresIn: number;
   };
   error?: string;
+  message?: string;
 }
 
 export interface ApiResponse<T = any> {
@@ -210,14 +211,12 @@ export interface EssayGradingResult {
 
 // CAT Algorithm types
 export interface CATState {
-  ability_estimate: number;
-  standard_error: number;
-  questions_administered: number;
-  responses: {
-    question_id: string;
-    difficulty: number;
-    is_correct: boolean;
-  }[];
+  theta: number;
+  sem: number;
+  administered_items: string[];
+  responses: any[];
+  start_time: string;
+  ability_estimate?: number;
 }
 
 export interface CATNextQuestion {
